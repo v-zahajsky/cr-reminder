@@ -276,4 +276,93 @@ export async function run(): Promise<void> {
 
   const nextState = updateState(prevState, snapshots);
   await saveState(nextState);
+  
+  // Send results to Slack webhook
+  const webhookUrl = 'https://hooks.slack.com/triggers/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';
+  const REVIEW_DEADLINE_DAYS = 3; // Number of days to complete review
+  const WARNING_THRESHOLD_DAYS = 5; // Yellow warning threshold
+  const URGENT_THRESHOLD_DAYS = 7; // Red urgent threshold
+  // Above URGENT_THRESHOLD_DAYS = Critical (fire emoji)
+  
+  try {
+    log.info('Sending results to Slack webhook...');
+    
+    // Filter only Issues (not Pull Requests), only assigned, and only problematic ones
+    const assignedIssues = records.filter(r => {
+      const durationDays = r.durationHours / 24;
+      return r.assigneesCount > 0 && !r.isPullRequest && durationDays >= REVIEW_DEADLINE_DAYS;
+    });
+    
+    // Build main message with assigned issues only
+    let textSummary = '';
+    
+    if (assignedIssues.length > 0) {
+      // Find max lengths for padding
+      const maxNameLength = Math.max(...assignedIssues.map(r => r.assigneesDisplay.length));
+      const maxDurationLength = Math.max(...assignedIssues.map(r => r.durationHuman.length));
+      
+      assignedIssues.forEach((r, idx) => {
+        const durationDays = r.durationHours / 24;
+        let emoji = '';
+        if (durationDays < WARNING_THRESHOLD_DAYS) {
+          emoji = '⚠️';  // REVIEW_DEADLINE_DAYS - WARNING_THRESHOLD_DAYS
+        } else if (durationDays < URGENT_THRESHOLD_DAYS) {
+          emoji = '🚨';  // WARNING_THRESHOLD_DAYS - URGENT_THRESHOLD_DAYS
+        } else {
+          emoji = '🔥';  // URGENT_THRESHOLD_DAYS+
+        }
+        
+        // Pad name and duration for alignment
+        const paddedName = r.assigneesDisplay.padEnd(maxNameLength, ' ');
+        const paddedDuration = r.durationHuman.padEnd(maxDurationLength, ' ');
+        
+        textSummary += `${emoji} ${paddedName}  ${paddedDuration}\n`;
+        textSummary += `   ${r.githubUrl}\n`;
+        textSummary += `   ${r.title}\n`;
+        
+        // Add separator line between issues (but not after the last one)
+        if (idx < assignedIssues.length - 1) {
+          textSummary += `   ─────────────────────────────────\n`;
+        }
+        textSummary += `\n`;
+      });
+
+        textSummary += `\nEvery PR should be reviewed within ${REVIEW_DEADLINE_DAYS} days.`;
+        textSummary += `\nPlease look to your assigned issues and comment in the thread if there’s any blocker or reason for the delay.`;
+
+    } else {
+      textSummary += `✅ Great work! All reviews are on track. 🎉`;
+    }
+    
+    if (assignedIssues.length > 0) {
+    //   textSummary += `\n\n<@U06S5J19SQN>`;
+    }
+
+    // temporary test
+    textSummary += `\n   ─────────────────────────────────\n`;
+     textSummary += `\n\n`;
+    textSummary += `✅ Great work! All reviews are on track. 🎉`;
+    
+    const payload = {
+      text: textSummary
+    };
+    
+    const response = await fetch(webhookUrl, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify(payload),
+    });
+    
+    if (!response.ok) {
+      throw new Error(`Webhook request failed with status ${response.status}: ${await response.text()}`);
+    }
+    
+    log.info('Successfully sent main message to Slack webhook');
+    
+  } catch (error) {
+    log.error(`Failed to send results to Slack webhook: ${(error as Error).message}`);
+    // Don't throw - we still want the actor to succeed even if webhook fails
+  }
 }
