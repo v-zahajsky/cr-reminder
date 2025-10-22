@@ -16,9 +16,7 @@ process.env.APIFY_SYSTEM_INFO_INTERVAL_MILLIS = '0';
 // import { router } from './routes.js';
 
 // The init() call configures the Actor for its environment. It's recommended to start every Actor with an init()
-await Actor.init({
-	systemInfoIntervalMillis: 0
-});
+await Actor.init();
 
 try {
 	log.info('Starting Review/QA duration Actor run');

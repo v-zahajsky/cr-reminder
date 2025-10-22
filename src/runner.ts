@@ -9,7 +9,6 @@ import {
 
 // Fix memory snapshot error on Windows by disabling memory monitoring entirely
 process.env.APIFY_MEMORY_MBYTES = '0';
-import { loadState, saveState, findExistingSnapshot, updateState } from './storage/state.js';
 import { ZenHubClient, mapRawToSnapshot } from './clients/zenhub.js';
 import { GitHubClient } from './clients/github.js';
 import {
@@ -65,7 +64,6 @@ export async function run(): Promise<void> {
   const gqlClient = input.useGraphql
     ? new GraphQLClient({ endpoint: (rawInput as any).graphqlEndpoint || 'https://api.zenhub.com/graphql', token: input.zenhubToken })
     : null;
-  const prevState: PersistedState = await loadState();
   const nowIso = new Date().toISOString();
 
   const snapshots: IssuePipelineSnapshot[] = [];
@@ -143,9 +141,7 @@ export async function run(): Promise<void> {
             enteredAt = node.updatedAt;
           }
           
-          const existing = findExistingSnapshot(prevState, repoRef, node.number);
-          const fallbackEnteredAt =
-            enteredAt || (existing && existing.pipeline === currentPipeline ? existing.pipelineEnteredAt : nowIso);
+          const fallbackEnteredAt = enteredAt || nowIso;
           if (!enteredAt && input.strictPipelineTimestamp) {
             log.debug(`Skipping issue #${node.number} - strict mode and no timeline timestamp`);
             continue;
@@ -198,9 +194,7 @@ export async function run(): Promise<void> {
           log.warning(`Events fetch failed for issue #${raw.issueNumber}: ${(e as Error).message}`);
         }
       }
-      const existing = findExistingSnapshot(prevState, t.repository, raw.issueNumber);
-      const fallbackEnteredAt =
-        enteredAt || (existing && existing.pipeline === raw.pipeline ? existing.pipelineEnteredAt : nowIso);
+      const fallbackEnteredAt = enteredAt || nowIso;
       if (!enteredAt && input.strictPipelineTimestamp) {
         // skip if strict and we couldn't resolve
         continue;
@@ -273,9 +267,6 @@ export async function run(): Promise<void> {
     const assigneeSet = new Set(records.flatMap(r => r.assignees));
     log.info(`Assignees involved: ${Array.from(assigneeSet).join(', ')}`);
   }
-
-  const nextState = updateState(prevState, snapshots);
-  await saveState(nextState);
   
   // Send results to Slack webhook
   const webhookUrl = 'https://hooks.slack.com/triggers/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';
@@ -309,7 +300,7 @@ export async function run(): Promise<void> {
         } else if (durationDays < URGENT_THRESHOLD_DAYS) {
           emoji = '🚨';  // WARNING_THRESHOLD_DAYS - URGENT_THRESHOLD_DAYS
         } else {
-          emoji = '🔥';  // URGENT_THRESHOLD_DAYS+
+          emoji = '😱';  // URGENT_THRESHOLD_DAYS+
         }
         
         // Pad name and duration for alignment
@@ -338,11 +329,6 @@ export async function run(): Promise<void> {
     //   textSummary += `\n\n<@U06S5J19SQN>`;
     }
 
-    // temporary test
-    textSummary += `\n   ─────────────────────────────────\n`;
-     textSummary += `\n\n`;
-    textSummary += `✅ Great work! All reviews are on track. 🎉`;
-    
     const payload = {
       text: textSummary
     };
