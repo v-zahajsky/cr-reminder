@@ -25,17 +25,10 @@
 			"githubToken": {
 				"title": "GitHub Token (optional)",
 				"type": "string",
-				"description": "Optional GitHub token to resolve repository IDs (REST fallback).",
+				"description": "Optional GitHub token to resolve repository IDs and PR draft status.",
 				"editor": "textfield",
 				"isSecret": true
 			},
-				"graphqlEndpoint": {
-					"title": "GraphQL Endpoint",
-					"type": "string",
-					"default": "https://api.zenhub.com/graphql",
-					"description": "ZenHub GraphQL endpoint URL.",
-					"editor": "textfield"
-				},
 			"useGraphql": {
 				"title": "Use GraphQL",
 				"type": "boolean",
@@ -43,30 +36,50 @@
 				"description": "If true, use GraphQL workspace-based queries; otherwise REST board endpoints.",
 				"editor": "checkbox"
 			},
-				"workspaceIds": {
-				"title": "Workspace IDs",
+			"graphqlEndpoint": {
+				"title": "GraphQL Endpoint",
+				"type": "string",
+				"default": "https://api.zenhub.com/public/graphql",
+				"description": "ZenHub GraphQL endpoint URL (for GraphQL mode).",
+				"editor": "textfield"
+			},
+			"workspaceIds": {
+				"title": "Workspace IDs (GraphQL mode)",
 				"type": "array",
-					"items": { "type": "string" },
-					"editor": "stringList",
-					"uniqueItems": true,
-				"description": "List of ZenHub workspace IDs (GraphQL mode)."
+				"items": {
+					"type": "string"
+				},
+				"editor": "stringList",
+				"uniqueItems": true,
+				"description": "List of ZenHub workspace IDs (required when useGraphql is true)."
+			},
+			"targets": {
+				"title": "Repositories (REST mode)",
+				"type": "array",
+				"items": {
+					"type": "string"
+				},
+				"editor": "stringList",
+				"description": "List of repositories in owner/name format (required when useGraphql is false)."
 			},
 			"targetPipelines": {
 				"title": "Target Pipelines",
 				"type": "array",
-					"items": { "type": "string" },
-					"editor": "stringList",
-					"default": ["Review", "QA"],
-					"description": "Pipeline names to measure duration in (e.g., Review, QA).",
-				"minItems": 1
+				"items": {
+					"type": "string"
+				},
+				"editor": "stringList",
+				"default": ["Review/QA"],
+				"minItems": 1,
+				"description": "Pipeline names to measure duration in (e.g., Review/QA, Review, QA)."
 			},
 			"maxIssues": {
 				"title": "Max Issues",
 				"type": "integer",
 				"default": 100,
-					"minimum": 1,
-					"editor": "number",
-					"description": "Upper limit of issues processed per workspace or repository."
+				"minimum": 1,
+				"editor": "number",
+				"description": "Upper limit of issues processed per workspace or repository."
 			},
 			"strictPipelineTimestamp": {
 				"title": "Strict Pipeline Timestamp",
@@ -74,21 +87,6 @@
 				"default": false,
 				"description": "Skip issues where precise pipeline entry time cannot be determined.",
 				"editor": "checkbox"
-			},
-				"targets": {
-					"title": "Repositories (REST mode)",
-					"type": "array",
-					"items": { "type": "string" },
-					"editor": "stringList",
-					"minItems": 1,
-					"description": "List of repositories in owner/name format (one per line) for REST mode."
-				},
-			"outputDataset": {
-				"title": "Output Dataset Name",
-				"type": "string",
-					"editor": "textfield",
-					"default": "issues-with-review-duration",
-					"description": "Name of the dataset to store results in."
 			}
 		},
 		"required": ["zenhubToken", "targetPipelines"]

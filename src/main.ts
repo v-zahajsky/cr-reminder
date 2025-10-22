@@ -1,5 +1,6 @@
 // Apify SDK - toolkit for building Apify Actors (Read more at https://docs.apify.com/sdk/js/)
 import { Actor, log } from 'apify';
+
 import { run } from './runner.js';
 
 // Disable memory snapshots to avoid wmic.exe errors on Windows

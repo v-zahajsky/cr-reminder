@@ -1,25 +1,27 @@
-import { Actor, Dataset, log } from 'apify';
+import { Actor, log } from 'apify';
+
+import { GitHubClient } from './clients/github.js';
+import type {
+  IssueTimelineResult,
+  WorkspaceIssuesResult} from './clients/graphql.js';
 import {
+  extractPipelineEnteredAtFromTimeline,
+  GraphQLClient,
+  ISSUE_TIMELINE_QUERY,
+  WORKSPACE_ISSUES_QUERY
+} from './clients/graphql.js';
+import { mapRawToSnapshot,ZenHubClient } from './clients/zenhub.js';
+import type {
   InputSchema,
   IssueDurationRecord,
-  IssuePipelineSnapshot,
-  PersistedState,
+  IssuePipelineSnapshot} from './types.js';
+import {
   makeIssueKey,
 } from './types.js';
+import { humanDuration, msToHours, msToMinutes } from './utils/time.js';
 
 // Fix memory snapshot error on Windows by disabling memory monitoring entirely
 process.env.APIFY_MEMORY_MBYTES = '0';
-import { ZenHubClient, mapRawToSnapshot } from './clients/zenhub.js';
-import { GitHubClient } from './clients/github.js';
-import {
-  GraphQLClient,
-  WORKSPACE_ISSUES_QUERY,
-  ISSUE_TIMELINE_QUERY,
-  WorkspaceIssuesResult,
-  IssueTimelineResult,
-  extractPipelineEnteredAtFromTimeline,
-} from './clients/graphql.js';
-import { humanDuration, msToHours, msToMinutes } from './utils/time.js';
 
 function validateInput(input: any): InputSchema {
   if (!input || typeof input !== 'object') throw new Error('Input must be an object');
@@ -28,10 +30,8 @@ function validateInput(input: any): InputSchema {
   if (useGraphql) {
     if (!Array.isArray(input.workspaceIds) || input.workspaceIds.length === 0)
       throw new Error('workspaceIds must be non-empty array when useGraphql is true');
-  } else {
-    if (!Array.isArray(input.targets) || input.targets.length === 0)
+  } else if (!Array.isArray(input.targets) || input.targets.length === 0)
       throw new Error('targets must be non-empty array');
-  }
   if (!Array.isArray(input.targetPipelines) || input.targetPipelines.length === 0)
     throw new Error('targetPipelines must be non-empty array');
   return {
@@ -48,10 +48,9 @@ function validateInput(input: any): InputSchema {
       : [],
     targetPipelines: input.targetPipelines,
     maxIssues: input.maxIssues ?? 100,
-    timeGranularity: 'minutes',
     githubToken: input.githubToken,
     strictPipelineTimestamp: input.strictPipelineTimestamp ?? false,
-    useGraphql: useGraphql,
+    useGraphql,
     workspaceIds: input.workspaceIds,
   };
 }
@@ -69,7 +68,7 @@ export async function run(): Promise<void> {
   const snapshots: IssuePipelineSnapshot[] = [];
   if (input.useGraphql && input.workspaceIds && input.workspaceIds.length > 0 && gqlClient) {
     for (const wid of input.workspaceIds) {
-      let after: string | undefined = undefined;
+      let after: string | undefined;
       let collected = 0;
       do {
         const data: WorkspaceIssuesResult = await gqlClient.query<WorkspaceIssuesResult>(WORKSPACE_ISSUES_QUERY, {
@@ -83,7 +82,7 @@ export async function run(): Promise<void> {
         }
         
         log.info(`Found workspace: ${data.workspace.name} (${data.workspace.id})`);
-        const nodes = data.workspace.issues.nodes;
+        const {nodes} = data.workspace.issues;
         log.info(`Processing ${nodes.length} issues from workspace`);
         
         for (const node of nodes) {
@@ -106,7 +105,7 @@ export async function run(): Promise<void> {
           };
           
           // Get draft status from GitHub API for pull requests
-          let isDraft: boolean | undefined = undefined;
+          let isDraft: boolean | undefined;
           if (node.pullRequest && ghClient) {
             try {
               const prDetails = await ghClient.getPullRequest(repoRef, node.number);
@@ -122,7 +121,7 @@ export async function run(): Promise<void> {
           log.info(`Issue #${node.number} (${nodeType}, state: ${node.state}) assignees: ${assigneeLogins.length > 0 ? assigneeLogins.join(', ') : 'None'}`);
           
           // fetch timeline for accurate timestamp
-          let enteredAt: string | undefined = undefined;
+          let enteredAt: string | undefined;
           // Timeline queries are failing, so for now use a fallback strategy:
           // Use updatedAt as approximation when issue was last modified
           try {
@@ -159,7 +158,7 @@ export async function run(): Promise<void> {
             state: node.state,
             createdAt: node.createdAt,
             isPullRequest: node.pullRequest,
-            isDraft: isDraft,
+            isDraft,
           };
           snapshots.push(snap);
           collected++;
@@ -185,7 +184,7 @@ export async function run(): Promise<void> {
     for (const raw of rawIssues) {
       if (!input.targetPipelines.includes(raw.pipeline)) continue;
       // fetch events to get accurate pipeline entered timestamp
-      let enteredAt: string | undefined = undefined;
+      let enteredAt: string | undefined;
       if (t.repoId) {
         try {
           const events = await zenClient.listIssueEvents(t.repoId, raw.issueNumber);

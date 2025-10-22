@@ -1,5 +1,6 @@
-import { RepoRef } from '../types.js';
 import { log } from 'apify';
+
+import type { RepoRef } from '../types.js';
 
 const GITHUB_API_BASE = 'https://api.github.com';
 

@@ -1,6 +1,7 @@
 // Placeholder ZenHub client. Will be expanded to real HTTP calls.
-import { RepoRef, IssuePipelineSnapshot } from '../types.js';
 import { log } from 'apify';
+
+import type { IssuePipelineSnapshot,RepoRef } from '../types.js';
 
 // ZenHub public API base (v2). Adjust if different.
 // ZenHub REST API base; documentation suggests versions like /v2; adjust when necessary.

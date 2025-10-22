@@ -11,7 +11,6 @@ export interface InputSchema {
   targets: TargetConfig[];
   targetPipelines: string[]; // e.g. ["Review", "QA"]
   maxIssues?: number; // default 100
-  timeGranularity?: 'minutes'; // for now only minutes
   strictPipelineTimestamp?: boolean; // if true, skip issues without event-based timestamp
   useGraphql?: boolean; // switch to GraphQL mode (overrides REST)
   workspaceIds?: string[]; // GraphQL workspace IDs (if provided, overrides targets list for issue collection)

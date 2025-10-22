@@ -28,11 +28,11 @@ export class GraphQLClient {
       await new Promise((r) => setTimeout(r, retryAfter * 1000));
       return this.query(query, variables, attempt + 1);
     }
-    let text = await res.text();
+    const text = await res.text();
     let json: GraphQLResponse<T> = {};
     try { json = JSON.parse(text) as GraphQLResponse<T>; } catch {}
     if (json.errors && json.errors.length) {
-      throw new Error('GraphQL errors: ' + json.errors.map((e) => e.message).join('; '));
+      throw new Error(`GraphQL errors: ${  json.errors.map((e) => e.message).join('; ')}`);
     }
     if (!json.data) throw new Error(`GraphQL response missing data (status ${res.status}): ${text.slice(0, 200)}`);
     return json.data;
