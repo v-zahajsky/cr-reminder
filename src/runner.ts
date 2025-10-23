@@ -1,13 +1,9 @@
 import { Actor, log } from 'apify';
 
 import { GitHubClient } from './clients/github.js';
-import type {
-  IssueTimelineResult,
-  WorkspaceIssuesResult} from './clients/graphql.js';
+import type { WorkspaceIssuesResult} from './clients/graphql.js';
 import {
-  extractPipelineEnteredAtFromTimeline,
   GraphQLClient,
-  ISSUE_TIMELINE_QUERY,
   WORKSPACE_ISSUES_QUERY
 } from './clients/graphql.js';
 import { mapRawToSnapshot,ZenHubClient } from './clients/zenhub.js';
@@ -131,29 +127,18 @@ export async function run(): Promise<void> {
           }
           log.info(`Issue #${node.number} (${nodeType}, state: ${node.state}) assignees: ${assigneeLogins.length > 0 ? assigneeLogins.join(', ') : 'None'}`);
           
-          // fetch timeline for accurate timestamp
-          let enteredAt: string | undefined;
-          // Timeline queries are failing, so for now use a fallback strategy:
-          // Use updatedAt as approximation when issue was last modified
-          try {
-            const tl = await gqlClient.query<IssueTimelineResult>(ISSUE_TIMELINE_QUERY, {
-              repositoryGhId: node.repository.ghId,
-              issueNumber: node.number,
-            });
-            const events = tl.issueByInfo?.transferEvents?.nodes || [];
-            if (currentPipeline) {
-              enteredAt = extractPipelineEnteredAtFromTimeline(events, currentPipeline);
-            }
-          } catch (e) {
-            log.warning(`Timeline query failed for issue #${node.number}: ${(e as Error).message}`);
-            // Fallback: use updatedAt - this is an approximation
-            log.info(`Using updatedAt as fallback timestamp for issue #${node.number}`);
-            enteredAt = node.updatedAt;
+          // Use latestTransferTime from pipelineIssue - this is when the issue was last moved to current pipeline
+          let enteredAt: string | undefined = node.pipelineIssue?.latestTransferTime || undefined;
+          
+          if (enteredAt) {
+            log.info(`Issue #${node.number} entered pipeline "${currentPipeline}" at ${enteredAt}`);
+          } else {
+            log.warning(`No latestTransferTime for issue #${node.number} in pipeline ${currentPipeline}`);
           }
           
           const fallbackEnteredAt = enteredAt || nowIso;
           if (!enteredAt && input.strictPipelineTimestamp) {
-            log.debug(`Skipping issue #${node.number} - strict mode and no timeline timestamp`);
+            log.debug(`Skipping issue #${node.number} - strict mode and no pipeline transfer timestamp`);
             continue;
           }
           
@@ -266,6 +251,36 @@ export async function run(): Promise<void> {
     ? `${input.workspaceIds?.length ?? 0} workspaces`
     : `${input.targets.length} targets`;
   log.info(`Collected ${records.length} issues across ${scopeDesc}.`);
+  
+  // Log statistics of all tickets in target pipelines - separated by type
+  const issues = records.filter(r => !r.isPullRequest);
+  const pullRequests = records.filter(r => r.isPullRequest);
+  
+  if (issues.length > 0) {
+    log.info('\n=== ISSUES IN TARGET PIPELINES ===');
+    issues.forEach((r) => {
+      const durationDays = (r.durationHours / 24).toFixed(1);
+      const assigneeInfo = r.assigneesCount > 0 ? r.assigneesDisplay : '⚠️ UNASSIGNED';
+      log.info(`📋 #${r.issueNumber} (${r.repo.owner}/${r.repo.name}): ${r.durationHuman} (${durationDays} days) - ${assigneeInfo}`);
+      log.info(`   Pipeline: ${r.pipeline} | Entered: ${r.pipelineEnteredAt}`);
+      log.info(`   ${r.githubUrl}`);
+    });
+    log.info('=== END ISSUES ===\n');
+  }
+  
+  if (pullRequests.length > 0) {
+    log.info('=== PULL REQUESTS IN TARGET PIPELINES ===');
+    pullRequests.forEach((r) => {
+      const durationDays = (r.durationHours / 24).toFixed(1);
+      const assigneeInfo = r.assigneesCount > 0 ? r.assigneesDisplay : '⚠️ UNASSIGNED';
+      const draftInfo = r.isDraft === true ? ' [DRAFT]' : r.isDraft === false ? ' [READY]' : '';
+      log.info(`🔀 #${r.issueNumber} (${r.repo.owner}/${r.repo.name}): ${r.durationHuman} (${durationDays} days) - ${assigneeInfo}${draftInfo}`);
+      log.info(`   Pipeline: ${r.pipeline} | Entered: ${r.pipelineEnteredAt}`);
+      log.info(`   ${r.githubUrl}`);
+    });
+    log.info('=== END PULL REQUESTS ===\n');
+  }
+  
   if (records[0]) {
     log.info(
       `Longest: ${makeIssueKey(records[0].repo, records[0].issueNumber)} (${records[0].typeDisplay}) in ${records[0].pipeline} for ${records[0].durationHuman} (assigned: ${records[0].assigneesDisplay})`,
@@ -317,7 +332,11 @@ export async function run(): Promise<void> {
       const maxNameLength = Math.max(...assignedIssues.map(r => r.assigneesDisplay.length));
       const maxDurationLength = Math.max(...assignedIssues.map(r => r.durationHuman.length));
       
+      log.info(`Preparing Slack message with ${assignedIssues.length} assigned issues:`);
+      
       assignedIssues.forEach((r, idx) => {
+        log.info(`  #${r.issueNumber}: ${r.durationHuman} (${r.durationHours.toFixed(2)}h, ${(r.durationHours / 24).toFixed(2)} days)`);
+        
         const durationDays = r.durationHours / 24;
         let emoji = '';
         if (durationDays < WARNING_THRESHOLD_DAYS) {
@@ -357,6 +376,10 @@ export async function run(): Promise<void> {
     const payload = {
       text: textSummary
     };
+    
+    log.info('=== FULL SLACK PAYLOAD ===');
+    log.info(JSON.stringify(payload, null, 2));
+    log.info('=== END SLACK PAYLOAD ===');
     
     const response = await fetch(webhookUrl, {
       method: 'POST',

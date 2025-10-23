@@ -82,30 +82,7 @@ export const WORKSPACE_ISSUES_QUERY = `
               id
               name
             }
-          }
-        }
-      }
-    }
-  }
-`;
-
-export const ISSUE_TIMELINE_QUERY = `
-  query IssueTimeline($repositoryGhId: Int!, $issueNumber: Int!) {
-    issueByInfo(repositoryGhId: $repositoryGhId, issueNumber: $issueNumber) {
-      id
-      number
-      title
-      transferEvents(last: 50) {
-        nodes {
-          id
-          createdAt
-          toPipeline {
-            id
-            name
-          }
-          fromPipeline {
-            id
-            name
+            latestTransferTime
           }
         }
       }
@@ -141,6 +118,7 @@ export interface WorkspaceIssueNode {
       id: string;
       name: string;
     };
+    latestTransferTime: string | null;
   } | null;
 }
 
@@ -153,48 +131,4 @@ export interface WorkspaceIssuesResult {
       nodes: WorkspaceIssueNode[];
     };
   } | null;
-}
-
-export interface TimelineEvent {
-  createdAt: string;
-  toPipeline: {
-    id: string;
-    name: string;
-  } | null;
-  fromPipeline: {
-    id: string;
-    name: string;
-  } | null;
-}
-
-export interface IssueTimelineResult {
-  issueByInfo: {
-    id: string;
-    number: number;
-    title: string;
-    transferEvents: {
-      nodes: TimelineEvent[];
-    };
-  } | null;
-}
-
-export function extractPipelineEnteredAtFromTimeline(events: TimelineEvent[], targetPipeline: string): string | undefined {
-  for (let i = events.length - 1; i >= 0; i--) {
-    const ev = events[i];
-    const toName = ev?.toPipeline?.name;
-    if (toName === targetPipeline && ev.createdAt) {
-      return ev.createdAt;
-    }
-  }
-  return undefined;
-}
-
-export function extractCurrentPipelineFromTimeline(events: TimelineEvent[]): string | undefined {
-  for (let i = events.length - 1; i >= 0; i--) {
-    const ev = events[i];
-    if (ev?.toPipeline?.name) {
-      return ev.toPipeline.name;
-    }
-  }
-  return undefined;
 }
