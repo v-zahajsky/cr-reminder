@@ -52,6 +52,7 @@ function validateInput(input: unknown): InputSchema {
     strictPipelineTimestamp: (inputObj.strictPipelineTimestamp as boolean | undefined) ?? false,
     useGraphql,
     workspaceIds: inputObj.workspaceIds as string[] | undefined,
+    sendEmptyReport: (inputObj.sendEmptyReport as boolean | undefined) ?? true,
   };
 }
 
@@ -316,13 +317,19 @@ export async function run(): Promise<void> {
   // Above URGENT_THRESHOLD_DAYS = Critical (fire emoji)
   
   try {
-    log.info('Sending results to Slack webhook...');
-    
     // Filter only Issues (not Pull Requests), only assigned, and only problematic ones
     const assignedIssues = records.filter(r => {
       const durationDays = r.durationHours / 24;
       return r.assigneesCount > 0 && !r.isPullRequest && durationDays >= REVIEW_DEADLINE_DAYS;
     });
+    
+    // Check if we should send empty report
+    if (assignedIssues.length === 0 && !input.sendEmptyReport) {
+      log.info('No issues to report and sendEmptyReport is false - skipping Slack notification');
+      return;
+    }
+    
+    log.info('Sending results to Slack webhook...');
     
     // Build main message with assigned issues only
     let textSummary = '';
@@ -363,9 +370,10 @@ export async function run(): Promise<void> {
       });
 
         textSummary += `\nEvery PR should be reviewed within ${REVIEW_DEADLINE_DAYS} days.`;
-        textSummary += `\nPlease look to your assigned issues and comment in the thread if there’s any blocker or reason for the delay.`;
+        textSummary += `\nPlease look to your assigned issues and comment in the thread if there's any blocker or reason for the delay.`;
 
     } else {
+      // No issues to report - we only get here if sendEmptyReport is true
       textSummary += `✅ Great work! All reviews are on track. 🎉`;
     }
     

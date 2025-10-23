@@ -93,6 +93,13 @@
 				"default": false,
 				"description": "Skip issues where precise pipeline entry time cannot be determined.",
 				"editor": "checkbox"
+			},
+			"sendEmptyReport": {
+				"title": "Send Empty Report",
+				"type": "boolean",
+				"default": true,
+				"description": "If true, send 'all good' message to Slack when no issues to report; if false, don't send anything.",
+				"editor": "checkbox"
 			}
 		},
 		"required": ["slackWebhookUrl", "zenhubToken", "targetPipelines"]

@@ -15,6 +15,7 @@ export interface InputSchema {
   strictPipelineTimestamp?: boolean; // if true, skip issues without event-based timestamp
   useGraphql?: boolean; // switch to GraphQL mode (overrides REST)
   workspaceIds?: string[]; // GraphQL workspace IDs (if provided, overrides targets list for issue collection)
+  sendEmptyReport?: boolean; // if true, send "all good" message when no issues to report; if false, don't send anything (default: true)
 }
 
 export interface IssuePipelineSnapshot {
