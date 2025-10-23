@@ -20,6 +20,43 @@ export interface ZenHubClientOptions {
   token: string;
 }
 
+interface ZenHubAssignee {
+  login?: string;
+  username?: string;
+}
+
+interface ZenHubBoardIssue {
+  number?: number;
+  issue_number?: number;
+  title?: string;
+  assignees?: ZenHubAssignee[];
+  githubIssue?: {
+    number?: number;
+    title?: string;
+    assignees?: ZenHubAssignee[];
+  };
+}
+
+interface ZenHubPipeline {
+  name: string;
+  issues?: ZenHubBoardIssue[];
+}
+
+interface ZenHubBoard {
+  pipelines?: ZenHubPipeline[];
+}
+
+interface ZenHubEvent {
+  type?: string;
+  event_type?: string;
+  createdAt?: string;
+  created_at?: string;
+  toPipeline?: { name?: string };
+  to_pipeline?: { name?: string };
+  pipeline?: { name?: string };
+}
+
+
 export class ZenHubClient {
   constructor(private opts: ZenHubClientOptions) {}
 
@@ -35,7 +72,7 @@ export class ZenHubClient {
     if (res.status === 429 && attempt < 5) {
       const retryAfter = Number(res.headers.get('Retry-After')) || attempt * 2;
       log.warning(`ZenHub rate limited (attempt ${attempt}), sleeping ${retryAfter}s`);
-      await new Promise((r) => setTimeout(r, retryAfter * 1000));
+      await new Promise((r) => { setTimeout(r, retryAfter * 1000); });
       return this.request<T>(path, init, attempt + 1);
     }
     if (!res.ok) {
@@ -48,35 +85,38 @@ export class ZenHubClient {
 
   // We attempt to fetch board (pipelines + issues). Without workspace context, using repository board.
   // Example (hypothetical): /v2/repositories/{repo_id}/board
-  async listBoard(repoId: number): Promise<any> {
+  async listBoard(repoId: number): Promise<ZenHubBoard> {
     return this.request(`/v2/repositories/${repoId}/board`);
   }
 
   // Issues events for pipeline history
-  async listIssueEvents(repoId: number, issueNumber: number): Promise<any[]> {
+  async listIssueEvents(repoId: number, issueNumber: number): Promise<ZenHubEvent[]> {
     return this.request(`/v2/repositories/${repoId}/issues/${issueNumber}/events`);
   }
 
   // Convert board response to ZenHubIssueRaw[]
-  extractIssuesFromBoard(board: any): ZenHubIssueRaw[] {
+  extractIssuesFromBoard(board: ZenHubBoard): ZenHubIssueRaw[] {
     if (!board || !Array.isArray(board.pipelines)) return [];
     const issues: ZenHubIssueRaw[] = [];
     for (const pipe of board.pipelines) {
       if (!Array.isArray(pipe.issues)) continue;
       for (const iss of pipe.issues) {
+        const issueNumber = iss.number ?? iss.issue_number ?? iss.githubIssue?.number;
+        if (typeof issueNumber !== 'number') continue;
+        
         // pipeline name from pipe.name
         issues.push({
-          issueNumber: iss.number ?? iss.issue_number ?? iss.githubIssue?.number,
+          issueNumber,
           title: iss.title ?? iss.githubIssue?.title ?? 'Unknown',
-          assignees: (iss.assignees || iss.githubIssue?.assignees || []).map((a: any) => a.login || a.username || a),
+          assignees: (iss.assignees || iss.githubIssue?.assignees || []).map((a: ZenHubAssignee) => a.login || a.username || String(a)),
           pipeline: pipe.name,
         });
       }
     }
-    return issues.filter((i) => typeof i.issueNumber === 'number');
+    return issues;
   }
 
-  extractPipelineEnteredAt(events: any[], targetPipeline: string): string | undefined {
+  extractPipelineEnteredAt(events: ZenHubEvent[], targetPipeline: string): string | undefined {
     // Search chronological events for last transfer into target pipeline.
     for (let i = events.length - 1; i >= 0; i--) {
       const ev = events[i];

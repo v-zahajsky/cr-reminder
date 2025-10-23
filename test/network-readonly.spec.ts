@@ -1,10 +1,12 @@
-import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
-import { run } from '../src/runner.js';
 import { Actor } from 'apify';
+import { afterEach,beforeEach, describe, expect, it, vi } from 'vitest';
+
+import { run } from '../src/runner.js';
 
 const ZH_GQL = 'https://api.zenhub.com/graphql';
 const GH_API = 'https://api.github.com';
 const ZH_API = 'https://api.zenhub.com';
+const SLACK_WEBHOOK = 'https://hooks.slack.com';
 
 describe('network readonly behavior', () => {
   const originalFetch = global.fetch;
@@ -21,6 +23,7 @@ describe('network readonly behavior', () => {
   it('GraphQL mode uses only POST with query (no mutation)', async () => {
     // Mock Actor.getInput to return GraphQL config
     vi.spyOn(Actor, 'getInput').mockResolvedValue({
+      slackWebhookUrl: 'https://hooks.slack.com/test',
       zenhubToken: 'DUMMY',
       useGraphql: true,
       workspaceIds: ['ws_1'],
@@ -29,14 +32,18 @@ describe('network readonly behavior', () => {
       strictPipelineTimestamp: false,
     });
 
-    const calls: Array<{ url: string; method: string; body?: any }> = [];
+    const calls: { url: string; method: string; body?: unknown }[] = [];
 
-    global.fetch = vi.fn(async (input: any, init?: RequestInit) => {
+    global.fetch = vi.fn(async (input: string | Request, init?: RequestInit) => {
       const url = typeof input === 'string' ? input : input?.url;
       const method = (init?.method || 'POST').toUpperCase();
-      let body: any = undefined;
+      let body: unknown;
       if (init?.body && typeof init.body === 'string') {
-        try { body = JSON.parse(init.body); } catch {}
+        try { 
+          body = JSON.parse(init.body) as unknown;
+        } catch {
+          // Ignore parse errors
+        }
       }
       calls.push({ url, method, body });
 
@@ -55,25 +62,35 @@ describe('network readonly behavior', () => {
           { status: 200, headers: { 'Content-Type': 'application/json' } },
         );
       }
+      // Mock Slack webhook - return success
+      if (url.startsWith(SLACK_WEBHOOK)) {
+        return new Response(JSON.stringify({ ok: true }), { 
+          status: 200, 
+          headers: { 'Content-Type': 'application/json' } 
+        });
+      }
       // Any other URL should not be called in this scenario; return 404 if it happens
       return new Response(JSON.stringify({}), { status: 404 });
-    }) as any;
+    }) as unknown as typeof global.fetch;
 
     await run();
 
-    // Assert all calls are POST to GraphQL with query and without mutation
-    expect(calls.length).toBeGreaterThan(0);
-    for (const c of calls) {
-      expect(c.url.startsWith(ZH_GQL)).toBe(true);
+    // Assert all GraphQL calls are POST with query and without mutation
+    // Filter out Slack webhook calls
+    const graphqlCalls = calls.filter(c => c.url.startsWith(ZH_GQL));
+    expect(graphqlCalls.length).toBeGreaterThan(0);
+    for (const c of graphqlCalls) {
       expect(c.method).toBe('POST');
-      expect(typeof c.body?.query).toBe('string');
-      expect(c.body?.query.toLowerCase()).toContain('query');
-      expect(c.body?.query.toLowerCase()).not.toContain('mutation');
+      const bodyObj = c.body as { query?: string };
+      expect(typeof bodyObj?.query).toBe('string');
+      expect(bodyObj?.query?.toLowerCase()).toContain('query');
+      expect(bodyObj?.query?.toLowerCase()).not.toContain('mutation');
     }
   });
 
   it('REST mode uses only GET requests to GitHub/ZenHub REST', async () => {
     vi.spyOn(Actor, 'getInput').mockResolvedValue({
+      slackWebhookUrl: 'https://hooks.slack.com/test',
       zenhubToken: 'DUMMY',
       useGraphql: false,
       targets: [ { repository: { owner: 'org', name: 'repo' } } ],
@@ -83,9 +100,9 @@ describe('network readonly behavior', () => {
       githubToken: 'DUMMY_GH',
     });
 
-    const calls: Array<{ url: string; method: string; body?: any }> = [];
+    const calls: { url: string; method: string }[] = [];
 
-    global.fetch = vi.fn(async (input: any, init?: RequestInit) => {
+    global.fetch = vi.fn(async (input: string | Request, init?: RequestInit) => {
       const url = typeof input === 'string' ? input : input?.url;
       const method = (init?.method || 'GET').toUpperCase();
       calls.push({ url, method });
@@ -111,8 +128,15 @@ describe('network readonly behavior', () => {
           headers: { 'Content-Type': 'application/json' },
         });
       }
+      // Mock Slack webhook - return success
+      if (url.startsWith(SLACK_WEBHOOK)) {
+        return new Response(JSON.stringify({ ok: true }), { 
+          status: 200, 
+          headers: { 'Content-Type': 'application/json' } 
+        });
+      }
       return new Response(JSON.stringify({}), { status: 404 });
-    }) as any;
+    }) as unknown as typeof global.fetch;
 
     await run();
 

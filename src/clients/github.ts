@@ -26,7 +26,9 @@ export class GitHubClient {
       if (attempt < 3 && ratelimitReset) {
         const wait = Math.min(30, parseInt(ratelimitReset, 10) * 1000 - Date.now());
         log.warning(`GitHub rate limit; waiting ${wait}ms`);
-        if (wait > 0) await new Promise((r) => setTimeout(r, wait));
+        if (wait > 0) {
+          await new Promise((r) => { setTimeout(r, wait); });
+        }
         return this.request<T>(path, attempt + 1);
       }
     }

@@ -15,6 +15,12 @@
 		"type": "object",
 		"description": "Configure data source (GraphQL workspace or REST repositories) and pipelines.",
 		"properties": {
+			"slackWebhookUrl": {
+				"title": "Slack Webhook URL",
+				"type": "string",
+				"description": "Slack webhook URL to send notifications about pending reviews.",
+				"editor": "textfield"
+			},
 			"zenhubToken": {
 				"title": "ZenHub Token",
 				"type": "string",
@@ -89,6 +95,6 @@
 				"editor": "checkbox"
 			}
 		},
-		"required": ["zenhubToken", "targetPipelines"]
+		"required": ["slackWebhookUrl", "zenhubToken", "targetPipelines"]
 	}
 }

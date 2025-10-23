@@ -13,7 +13,7 @@ interface GraphQLResponse<T> {
 export class GraphQLClient {
   constructor(private opts: GraphQLClientOptions) {}
 
-  async query<T>(query: string, variables: Record<string, any>, attempt = 1): Promise<T> {
+  async query<T>(query: string, variables: Record<string, unknown>, attempt = 1): Promise<T> {
     const res = await fetch(this.opts.endpoint, {
       method: 'POST',
       headers: {
@@ -25,14 +25,18 @@ export class GraphQLClient {
     if (res.status === 429 && attempt < 5) {
       const retryAfter = Number(res.headers.get('Retry-After')) || attempt * 2;
       log.warning(`GraphQL rate limited, retry in ${retryAfter}s`);
-      await new Promise((r) => setTimeout(r, retryAfter * 1000));
+      await new Promise((r) => { setTimeout(r, retryAfter * 1000); });
       return this.query(query, variables, attempt + 1);
     }
     const text = await res.text();
     let json: GraphQLResponse<T> = {};
-    try { json = JSON.parse(text) as GraphQLResponse<T>; } catch {}
+    try { 
+      json = JSON.parse(text) as GraphQLResponse<T>;
+    } catch {
+      // Ignore parse errors, we'll handle missing data below
+    }
     if (json.errors && json.errors.length) {
-      throw new Error(`GraphQL errors: ${  json.errors.map((e) => e.message).join('; ')}`);
+      throw new Error(`GraphQL errors: ${json.errors.map((e) => e.message).join('; ')}`);
     }
     if (!json.data) throw new Error(`GraphQL response missing data (status ${res.status}): ${text.slice(0, 200)}`);
     return json.data;
@@ -151,29 +155,30 @@ export interface WorkspaceIssuesResult {
   } | null;
 }
 
+export interface TimelineEvent {
+  createdAt: string;
+  toPipeline: {
+    id: string;
+    name: string;
+  } | null;
+  fromPipeline: {
+    id: string;
+    name: string;
+  } | null;
+}
+
 export interface IssueTimelineResult {
   issueByInfo: {
     id: string;
     number: number;
     title: string;
     transferEvents: {
-      nodes: {
-        id: string;
-        createdAt: string;
-        toPipeline: {
-          id: string;
-          name: string;
-        };
-        fromPipeline: {
-          id: string;
-          name: string;
-        } | null;
-      }[];
+      nodes: TimelineEvent[];
     };
   } | null;
 }
 
-export function extractPipelineEnteredAtFromTimeline(events: any[], targetPipeline: string): string | undefined {
+export function extractPipelineEnteredAtFromTimeline(events: TimelineEvent[], targetPipeline: string): string | undefined {
   for (let i = events.length - 1; i >= 0; i--) {
     const ev = events[i];
     const toName = ev?.toPipeline?.name;
@@ -184,7 +189,7 @@ export function extractPipelineEnteredAtFromTimeline(events: any[], targetPipeli
   return undefined;
 }
 
-export function extractCurrentPipelineFromTimeline(events: any[]): string | undefined {
+export function extractCurrentPipelineFromTimeline(events: TimelineEvent[]): string | undefined {
   for (let i = events.length - 1; i >= 0; i--) {
     const ev = events[i];
     if (ev?.toPipeline?.name) {

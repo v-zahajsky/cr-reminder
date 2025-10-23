@@ -23,35 +23,39 @@ import { humanDuration, msToHours, msToMinutes } from './utils/time.js';
 // Fix memory snapshot error on Windows by disabling memory monitoring entirely
 process.env.APIFY_MEMORY_MBYTES = '0';
 
-function validateInput(input: any): InputSchema {
+function validateInput(input: unknown): InputSchema {
   if (!input || typeof input !== 'object') throw new Error('Input must be an object');
-  if (!input.zenhubToken || typeof input.zenhubToken !== 'string') throw new Error('Missing zenhubToken');
-  const useGraphql = Boolean(input.useGraphql);
+  const inputObj = input as Record<string, unknown>;
+  if (!inputObj.slackWebhookUrl || typeof inputObj.slackWebhookUrl !== 'string') 
+    throw new Error('Missing slackWebhookUrl');
+  if (!inputObj.zenhubToken || typeof inputObj.zenhubToken !== 'string') throw new Error('Missing zenhubToken');
+  const useGraphql = Boolean(inputObj.useGraphql);
   if (useGraphql) {
-    if (!Array.isArray(input.workspaceIds) || input.workspaceIds.length === 0)
+    if (!Array.isArray(inputObj.workspaceIds) || inputObj.workspaceIds.length === 0)
       throw new Error('workspaceIds must be non-empty array when useGraphql is true');
-  } else if (!Array.isArray(input.targets) || input.targets.length === 0)
+  } else if (!Array.isArray(inputObj.targets) || inputObj.targets.length === 0)
       throw new Error('targets must be non-empty array');
-  if (!Array.isArray(input.targetPipelines) || input.targetPipelines.length === 0)
+  if (!Array.isArray(inputObj.targetPipelines) || inputObj.targetPipelines.length === 0)
     throw new Error('targetPipelines must be non-empty array');
   return {
-    zenhubToken: input.zenhubToken,
-    targets: Array.isArray(input.targets)
-      ? input.targets.map((t: any) => {
+    slackWebhookUrl: inputObj.slackWebhookUrl,
+    zenhubToken: inputObj.zenhubToken,
+    targets: Array.isArray(inputObj.targets)
+      ? inputObj.targets.map((t: unknown) => {
           if (typeof t === 'string') {
             const [owner, name] = t.split('/');
             if (!owner || !name) throw new Error(`Invalid target format: ${t}. Expected owner/name`);
-            return { repository: { owner, name } } as any;
+            return { repository: { owner, name } };
           }
-          return t;
+          return t as { repository: { owner: string; name: string } };
         })
       : [],
-    targetPipelines: input.targetPipelines,
-    maxIssues: input.maxIssues ?? 100,
-    githubToken: input.githubToken,
-    strictPipelineTimestamp: input.strictPipelineTimestamp ?? false,
+    targetPipelines: inputObj.targetPipelines as string[],
+    maxIssues: (inputObj.maxIssues as number | undefined) ?? 100,
+    githubToken: inputObj.githubToken as string | undefined,
+    strictPipelineTimestamp: (inputObj.strictPipelineTimestamp as boolean | undefined) ?? false,
     useGraphql,
-    workspaceIds: input.workspaceIds,
+    workspaceIds: inputObj.workspaceIds as string[] | undefined,
   };
 }
 
@@ -60,8 +64,12 @@ export async function run(): Promise<void> {
   const input = validateInput(rawInput);
   const zenClient = new ZenHubClient({ token: input.zenhubToken });
   const ghClient = new GitHubClient({ token: input.githubToken });
+  const rawInputObj = rawInput as Record<string, unknown>;
   const gqlClient = input.useGraphql
-    ? new GraphQLClient({ endpoint: (rawInput as any).graphqlEndpoint || 'https://api.zenhub.com/graphql', token: input.zenhubToken })
+    ? new GraphQLClient({ 
+        endpoint: (rawInputObj.graphqlEndpoint as string | undefined) || 'https://api.zenhub.com/graphql', 
+        token: input.zenhubToken 
+      })
     : null;
   const nowIso = new Date().toISOString();
 
@@ -115,9 +123,12 @@ export async function run(): Promise<void> {
             }
           }
           
-          const nodeType = node.pullRequest 
-            ? (isDraft ? 'Draft Pull Request' : 'Pull Request') 
-            : 'Issue';
+          let nodeType: string;
+          if (node.pullRequest) {
+            nodeType = isDraft ? 'Draft Pull Request' : 'Pull Request';
+          } else {
+            nodeType = 'Issue';
+          }
           log.info(`Issue #${node.number} (${nodeType}, state: ${node.state}) assignees: ${assigneeLogins.length > 0 ? assigneeLogins.join(', ') : 'None'}`);
           
           // fetch timeline for accurate timestamp
@@ -208,12 +219,27 @@ export async function run(): Promise<void> {
   const records: IssueDurationRecord[] = snapshots.map((s) => {
     const durationMs = Date.now() - Date.parse(s.pipelineEnteredAt);
     const isDraftPR = s.isPullRequest && s.isDraft;
-    const typeDisplay = s.isPullRequest 
-      ? (isDraftPR ? 'Draft Pull Request' : 'Pull Request') 
-      : 'Issue';
-    const draftDisplay = s.isPullRequest 
-      ? (s.isDraft === true ? 'Draft' : s.isDraft === false ? 'Ready' : 'Unknown') 
-      : 'N/A';
+    
+    let typeDisplay: string;
+    if (s.isPullRequest) {
+      typeDisplay = isDraftPR ? 'Draft Pull Request' : 'Pull Request';
+    } else {
+      typeDisplay = 'Issue';
+    }
+    
+    let draftDisplay: string;
+    if (s.isPullRequest) {
+      if (s.isDraft === true) {
+        draftDisplay = 'Draft';
+      } else if (s.isDraft === false) {
+        draftDisplay = 'Ready';
+      } else {
+        draftDisplay = 'Unknown';
+      }
+    } else {
+      draftDisplay = 'N/A';
+    }
+    
     const githubUrl = `https://github.com/${s.repo.owner}/${s.repo.name}/${s.isPullRequest ? 'pull' : 'issues'}/${s.issueNumber}`;
     
     return {
@@ -268,7 +294,7 @@ export async function run(): Promise<void> {
   }
   
   // Send results to Slack webhook
-  const webhookUrl = 'https://hooks.slack.com/triggers/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';
+  const webhookUrl = input.slackWebhookUrl;
   const REVIEW_DEADLINE_DAYS = 3; // Number of days to complete review
   const WARNING_THRESHOLD_DAYS = 5; // Yellow warning threshold
   const URGENT_THRESHOLD_DAYS = 7; // Red urgent threshold

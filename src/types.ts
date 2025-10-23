@@ -6,6 +6,7 @@ export interface TargetConfig {
 }
 
 export interface InputSchema {
+  slackWebhookUrl: string;
   zenhubToken: string;
   githubToken?: string; // optional fallback for enriched data if ZenHub lacks fields
   targets: TargetConfig[];

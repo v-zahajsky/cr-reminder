@@ -9,5 +9,6 @@
         "skipLibCheck": true,
         "lib": ["DOM"]
     },
-    "include": ["./src/**/*"]
+    "include": ["./src/**/*"],
+    "exclude": ["./test/**/*", "./node_modules", "./dist"]
 }
