@@ -8,12 +8,14 @@ export interface TargetConfig {
 export interface InputSchema {
 	slackWebhookUrl: string;
 	zenhubToken: string;
-	useGraphql?: boolean;
 	graphqlEndpoint?: string;
 	workspaceIds?: string[];
 	targetPipelines: string[];
 	maxIssues?: number;
-	sendEmptyReport?: boolean;
+	sendEmptyReport: boolean;
+	warningThresholdDays?: number;
+	urgentThresholdDays?: number;
+	criticalThresholdDays?: number;
 }
 
 export interface IssuePipelineSnapshot {

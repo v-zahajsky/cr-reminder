@@ -28,13 +28,6 @@
 				"editor": "textfield",
 				"isSecret": true
 			},
-			"useGraphql": {
-				"title": "Use GraphQL",
-				"type": "boolean",
-				"default": true,
-				"description": "If true, use GraphQL workspace-based queries; otherwise REST board endpoints.",
-				"editor": "checkbox"
-			},
 			"graphqlEndpoint": {
 				"title": "GraphQL Endpoint",
 				"type": "string",
@@ -43,14 +36,14 @@
 				"editor": "textfield"
 			},
 			"workspaceIds": {
-				"title": "Workspace IDs (GraphQL mode)",
+				"title": "Workspace IDs",
 				"type": "array",
 				"items": {
 					"type": "string"
 				},
 				"editor": "stringList",
 				"uniqueItems": true,
-				"description": "List of ZenHub workspace IDs (required when useGraphql is true)."
+				"description": "List of ZenHub workspace IDs."
 			},
 			"targetPipelines": {
 				"title": "Target Pipelines",
@@ -63,6 +56,13 @@
 				"minItems": 1,
 				"description": "Pipeline names to measure duration in (e.g., Review/QA, Review, QA)."
 			},
+			"sendEmptyReport": {
+				"title": "Send Empty Report",
+				"type": "boolean",
+				"default": true,
+				"description": "If true, send 'all good' message to Slack when no issues to report; if false, don't send anything.",
+				"editor": "checkbox"
+			},
 			"maxIssues": {
 				"title": "Max Issues",
 				"type": "integer",
@@ -70,15 +70,34 @@
 				"minimum": 1,
 				"editor": "number",
 				"description": "Upper limit of issues processed per workspace or repository."
+			},			
+			"warningThresholdDays": {
+				"title": "Warning Threshold (days)",
+				"type": "integer",
+				"default": 3,
+				"minimum": 1,
+				"editor": "number",
+				"description": "Number of days after which issues start showing with warning emoji (⚠️).",
+				"sectionCaption": "Thresholds",
+				"sectionDescription": "Configure when issues should be flagged based on duration in pipeline"
 			},
-			"sendEmptyReport": {
-				"title": "Send Empty Report",
-				"type": "boolean",
-				"default": true,
-				"description": "If true, send 'all good' message to Slack when no issues to report; if false, don't send anything.",
-				"editor": "checkbox"
-			}
+			"urgentThresholdDays": {
+				"title": "Urgent Threshold (days)",
+				"type": "integer",
+				"default": 5,
+				"minimum": 1,
+				"editor": "number",
+				"description": "Number of days after which issues get an urgent emoji (🚨)."
+			},
+			"criticalThresholdDays": {
+				"title": "Critical Threshold (days)",
+				"type": "integer",
+				"default": 7,
+				"minimum": 1,
+				"editor": "number",
+				"description": "Number of days after which issues get a critical emoji (😱)."
+			}			
 		},
-		"required": ["slackWebhookUrl", "zenhubToken", "targetPipelines"]
+		"required": ["slackWebhookUrl", "zenhubToken", "targetPipelines", "sendEmptyReport"]
 	}
 }

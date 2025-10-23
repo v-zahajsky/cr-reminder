@@ -24,21 +24,19 @@ function validateInput(input: unknown): InputSchema {
   if (!inputObj.slackWebhookUrl || typeof inputObj.slackWebhookUrl !== 'string') 
     throw new Error('Missing slackWebhookUrl');
   if (!inputObj.zenhubToken || typeof inputObj.zenhubToken !== 'string') throw new Error('Missing zenhubToken');
-  const useGraphql = Boolean(inputObj.useGraphql);
-  if (useGraphql) {
-    if (!Array.isArray(inputObj.workspaceIds) || inputObj.workspaceIds.length === 0)
-      throw new Error('workspaceIds must be non-empty array when useGraphql is true');
-  }
+  if (!Array.isArray(inputObj.workspaceIds) || inputObj.workspaceIds.length === 0)
+    throw new Error('workspaceIds must be non-empty array');
   if (!Array.isArray(inputObj.targetPipelines) || inputObj.targetPipelines.length === 0)
     throw new Error('targetPipelines must be non-empty array');
+  if (typeof inputObj.sendEmptyReport !== 'boolean')
+    throw new Error('sendEmptyReport must be a boolean');
   return {
     slackWebhookUrl: inputObj.slackWebhookUrl,
     zenhubToken: inputObj.zenhubToken,
     targetPipelines: inputObj.targetPipelines as string[],
     maxIssues: (inputObj.maxIssues as number | undefined) ?? 100,
-    useGraphql,
     workspaceIds: inputObj.workspaceIds as string[] | undefined,
-    sendEmptyReport: (inputObj.sendEmptyReport as boolean | undefined) ?? true,
+    sendEmptyReport: inputObj.sendEmptyReport as boolean,
   };
 }
 
@@ -47,16 +45,14 @@ export async function run(): Promise<void> {
   const input = validateInput(rawInput);
   const zenClient = new ZenHubClient({ token: input.zenhubToken });
   const rawInputObj = rawInput as Record<string, unknown>;
-  const gqlClient = input.useGraphql
-    ? new GraphQLClient({ 
-        endpoint: (rawInputObj.graphqlEndpoint as string | undefined) || 'https://api.zenhub.com/graphql', 
-        token: input.zenhubToken 
-      })
-    : null;
+  const gqlClient = new GraphQLClient({ 
+    endpoint: (rawInputObj.graphqlEndpoint as string | undefined) || 'https://api.zenhub.com/graphql', 
+    token: input.zenhubToken 
+  });
   const nowIso = new Date().toISOString();
 
   const snapshots: IssuePipelineSnapshot[] = [];
-  if (input.useGraphql && input.workspaceIds && input.workspaceIds.length > 0 && gqlClient) {
+  if (input.workspaceIds && input.workspaceIds.length > 0) {
     for (const wid of input.workspaceIds) {
       let after: string | undefined;
       let collected = 0;
@@ -249,16 +245,15 @@ export async function run(): Promise<void> {
   
   // Send results to Slack webhook
   const webhookUrl = input.slackWebhookUrl;
-  const REVIEW_DEADLINE_DAYS = 3; // Number of days to complete review
-  const WARNING_THRESHOLD_DAYS = 5; // Yellow warning threshold
-  const URGENT_THRESHOLD_DAYS = 7; // Red urgent threshold
-  // Above URGENT_THRESHOLD_DAYS = Critical (fire emoji)
+  const WARNING_THRESHOLD_DAYS = input.warningThresholdDays ?? 3; // First threshold - start showing warnings (⚠️)
+  const URGENT_THRESHOLD_DAYS = input.urgentThresholdDays ?? 5; // Second threshold - urgent (🚨)
+  const CRITICAL_THRESHOLD_DAYS = input.criticalThresholdDays ?? 7; // Third threshold - critical (😱)
   
   try {
     // Filter only Issues (not Pull Requests), only assigned, and only problematic ones
     const assignedIssues = records.filter(r => {
       const durationDays = r.durationHours / 24;
-      return r.assigneesCount > 0 && !r.isPullRequest && durationDays >= REVIEW_DEADLINE_DAYS;
+      return r.assigneesCount > 0 && !r.isPullRequest && durationDays >= WARNING_THRESHOLD_DAYS;
     });
     
     // Check if we should send empty report
@@ -284,12 +279,12 @@ export async function run(): Promise<void> {
         
         const durationDays = r.durationHours / 24;
         let emoji = '';
-        if (durationDays < WARNING_THRESHOLD_DAYS) {
-          emoji = '⚠️';  // REVIEW_DEADLINE_DAYS - WARNING_THRESHOLD_DAYS
-        } else if (durationDays < URGENT_THRESHOLD_DAYS) {
-          emoji = '🚨';  // WARNING_THRESHOLD_DAYS - URGENT_THRESHOLD_DAYS
+        if (durationDays < URGENT_THRESHOLD_DAYS) {
+          emoji = '⚠️';  // WARNING_THRESHOLD_DAYS to URGENT_THRESHOLD_DAYS: warning
+        } else if (durationDays < CRITICAL_THRESHOLD_DAYS) {
+          emoji = '🚨';  // URGENT_THRESHOLD_DAYS to CRITICAL_THRESHOLD_DAYS: urgent
         } else {
-          emoji = '😱';  // URGENT_THRESHOLD_DAYS+
+          emoji = '😱';  // Above CRITICAL_THRESHOLD_DAYS: critical
         }
         
         // Pad name and duration for alignment
@@ -307,7 +302,7 @@ export async function run(): Promise<void> {
         textSummary += `\n`;
       });
 
-        textSummary += `\nEvery PR should be reviewed within ${REVIEW_DEADLINE_DAYS} days.`;
+        textSummary += `\nEvery issue should be reviewed within ${WARNING_THRESHOLD_DAYS} days.`;
         textSummary += `\nPlease look to your assigned issues and comment in the thread if there's any blocker or reason for the delay.`;
 
     } else {
