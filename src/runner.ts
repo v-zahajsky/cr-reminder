@@ -1,6 +1,5 @@
 import { Actor, log } from 'apify';
 
-import { GitHubClient } from './clients/github.js';
 import type { WorkspaceIssuesResult} from './clients/graphql.js';
 import {
   GraphQLClient,
@@ -29,27 +28,14 @@ function validateInput(input: unknown): InputSchema {
   if (useGraphql) {
     if (!Array.isArray(inputObj.workspaceIds) || inputObj.workspaceIds.length === 0)
       throw new Error('workspaceIds must be non-empty array when useGraphql is true');
-  } else if (!Array.isArray(inputObj.targets) || inputObj.targets.length === 0)
-      throw new Error('targets must be non-empty array');
+  }
   if (!Array.isArray(inputObj.targetPipelines) || inputObj.targetPipelines.length === 0)
     throw new Error('targetPipelines must be non-empty array');
   return {
     slackWebhookUrl: inputObj.slackWebhookUrl,
     zenhubToken: inputObj.zenhubToken,
-    targets: Array.isArray(inputObj.targets)
-      ? inputObj.targets.map((t: unknown) => {
-          if (typeof t === 'string') {
-            const [owner, name] = t.split('/');
-            if (!owner || !name) throw new Error(`Invalid target format: ${t}. Expected owner/name`);
-            return { repository: { owner, name } };
-          }
-          return t as { repository: { owner: string; name: string } };
-        })
-      : [],
     targetPipelines: inputObj.targetPipelines as string[],
     maxIssues: (inputObj.maxIssues as number | undefined) ?? 100,
-    githubToken: inputObj.githubToken as string | undefined,
-    strictPipelineTimestamp: (inputObj.strictPipelineTimestamp as boolean | undefined) ?? false,
     useGraphql,
     workspaceIds: inputObj.workspaceIds as string[] | undefined,
     sendEmptyReport: (inputObj.sendEmptyReport as boolean | undefined) ?? true,
@@ -60,7 +46,6 @@ export async function run(): Promise<void> {
   const rawInput = (await Actor.getInput()) || {};
   const input = validateInput(rawInput);
   const zenClient = new ZenHubClient({ token: input.zenhubToken });
-  const ghClient = new GitHubClient({ token: input.githubToken });
   const rawInputObj = rawInput as Record<string, unknown>;
   const gqlClient = input.useGraphql
     ? new GraphQLClient({ 
@@ -109,16 +94,8 @@ export async function run(): Promise<void> {
             name: node.repository.name 
           };
           
-          // Get draft status from GitHub API for pull requests
-          let isDraft: boolean | undefined;
-          if (node.pullRequest && ghClient) {
-            try {
-              const prDetails = await ghClient.getPullRequest(repoRef, node.number);
-              isDraft = prDetails?.draft;
-            } catch (e) {
-              log.warning(`Failed to get draft status for PR #${node.number}: ${(e as Error).message}`);
-            }
-          }
+          // Draft status not available without GitHub token
+          const isDraft: boolean | undefined = undefined;
           
           let nodeType: string;
           if (node.pullRequest) {
@@ -138,10 +115,6 @@ export async function run(): Promise<void> {
           }
           
           const fallbackEnteredAt = enteredAt || nowIso;
-          if (!enteredAt && input.strictPipelineTimestamp) {
-            log.debug(`Skipping issue #${node.number} - strict mode and no pipeline transfer timestamp`);
-            continue;
-          }
           
           const snap: IssuePipelineSnapshot = {
             issueNumber: node.number,
@@ -166,39 +139,6 @@ export async function run(): Promise<void> {
         after = data.workspace.issues.pageInfo.hasNextPage ? data.workspace.issues.pageInfo.endCursor : undefined;
       } while (after);
     }
-  } else {
-    for (const t of input.targets) {
-    // Resolve repoId if missing and GitHub token provided
-    if (!t.repoId && ghClient) {
-      try {
-        const repoData = await ghClient.getRepo(t.repository);
-        t.repoId = repoData.id;
-      } catch (e) {
-        log.warning(`Failed to resolve repoId for ${t.repository.owner}/${t.repository.name}: ${(e as Error).message}`);
-      }
-    }
-    const rawIssues = await zenClient.listIssuesInRepoUsingBoard(t.repository, t.repoId);
-    for (const raw of rawIssues) {
-      if (!input.targetPipelines.includes(raw.pipeline)) continue;
-      // fetch events to get accurate pipeline entered timestamp
-      let enteredAt: string | undefined;
-      if (t.repoId) {
-        try {
-          const events = await zenClient.listIssueEvents(t.repoId, raw.issueNumber);
-          enteredAt = zenClient.extractPipelineEnteredAt(events, raw.pipeline);
-        } catch (e) {
-          log.warning(`Events fetch failed for issue #${raw.issueNumber}: ${(e as Error).message}`);
-        }
-      }
-      const fallbackEnteredAt = enteredAt || nowIso;
-      if (!enteredAt && input.strictPipelineTimestamp) {
-        // skip if strict and we couldn't resolve
-        continue;
-      }
-      const snap = mapRawToSnapshot(t.repository, { ...raw, pipelineEnteredAt: enteredAt }, nowIso, fallbackEnteredAt);
-      snapshots.push(snap);
-    }
-  }
   }
 
   // compute durations
@@ -248,9 +188,7 @@ export async function run(): Promise<void> {
   // Use default dataset so --purge flag can clear it
   await Actor.pushData(records);
 
-  const scopeDesc = input.useGraphql
-    ? `${input.workspaceIds?.length ?? 0} workspaces`
-    : `${input.targets.length} targets`;
+  const scopeDesc = `${input.workspaceIds?.length ?? 0} workspaces`;
   log.info(`Collected ${records.length} issues across ${scopeDesc}.`);
   
   // Log statistics of all tickets in target pipelines - separated by type

@@ -28,13 +28,6 @@
 				"editor": "textfield",
 				"isSecret": true
 			},
-			"githubToken": {
-				"title": "GitHub Token (optional)",
-				"type": "string",
-				"description": "Optional GitHub token to resolve repository IDs and PR draft status.",
-				"editor": "textfield",
-				"isSecret": true
-			},
 			"useGraphql": {
 				"title": "Use GraphQL",
 				"type": "boolean",
@@ -59,15 +52,6 @@
 				"uniqueItems": true,
 				"description": "List of ZenHub workspace IDs (required when useGraphql is true)."
 			},
-			"targets": {
-				"title": "Repositories (REST mode)",
-				"type": "array",
-				"items": {
-					"type": "string"
-				},
-				"editor": "stringList",
-				"description": "List of repositories in owner/name format (required when useGraphql is false)."
-			},
 			"targetPipelines": {
 				"title": "Target Pipelines",
 				"type": "array",
@@ -86,13 +70,6 @@
 				"minimum": 1,
 				"editor": "number",
 				"description": "Upper limit of issues processed per workspace or repository."
-			},
-			"strictPipelineTimestamp": {
-				"title": "Strict Pipeline Timestamp",
-				"type": "boolean",
-				"default": false,
-				"description": "Skip issues where precise pipeline entry time cannot be determined.",
-				"editor": "checkbox"
 			},
 			"sendEmptyReport": {
 				"title": "Send Empty Report",

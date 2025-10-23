@@ -6,16 +6,14 @@ export interface TargetConfig {
 }
 
 export interface InputSchema {
-  slackWebhookUrl: string;
-  zenhubToken: string;
-  githubToken?: string; // optional fallback for enriched data if ZenHub lacks fields
-  targets: TargetConfig[];
-  targetPipelines: string[]; // e.g. ["Review", "QA"]
-  maxIssues?: number; // default 100
-  strictPipelineTimestamp?: boolean; // if true, skip issues without event-based timestamp
-  useGraphql?: boolean; // switch to GraphQL mode (overrides REST)
-  workspaceIds?: string[]; // GraphQL workspace IDs (if provided, overrides targets list for issue collection)
-  sendEmptyReport?: boolean; // if true, send "all good" message when no issues to report; if false, don't send anything (default: true)
+	slackWebhookUrl: string;
+	zenhubToken: string;
+	useGraphql?: boolean;
+	graphqlEndpoint?: string;
+	workspaceIds?: string[];
+	targetPipelines: string[];
+	maxIssues?: number;
+	sendEmptyReport?: boolean;
 }
 
 export interface IssuePipelineSnapshot {
